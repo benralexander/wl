@@ -89,14 +89,6 @@ class Client:
 
         if host is not None and port is not None:
             socket_url = f"ws://{host}:{port}/ws"
-            # self.client_socket = websocket.WebSocketApp(
-            #     socket_url,
-            #     on_open=lambda ws: self.on_open(ws),
-            #     on_message=lambda ws, message: self.on_message(ws, message),
-            #     on_error=lambda ws, error: self.on_error(ws, error),
-            #     on_close=lambda ws, close_status_code, close_msg: self.on_close(
-            #         ws, close_status_code, close_msg
-            #     ),
             self.client_socket = websocket.WebSocketApp(
                 socket_url,
                 on_error=self.on_error,
@@ -145,7 +137,7 @@ class Client:
                           (transcript.empty() or
                            ((transcript.qsize()>0) and (float(seg['start']) >= float(transcript.snapshot()[-1]['end']))))):
                         transcript.put(seg,timeout=0.1)
-                        # logging.info(f"segment:{' '.join(self.transcript)}")
+                        #logging.info(f"segment:{' '.join(self.transcript)}")
             # update last received segment and last valid response time
             if self.last_received_segment is None or self.last_received_segment != segments[-1]["text"]:
                 self.last_response_received = time.time()
@@ -162,11 +154,9 @@ class Client:
                 utils.clear_screen()
             utils.print_transcript(text)
 
-        # if self.programmer_mode:
-        #     logging.info(f'num of trans = {transcript.qsize()}')
-        #     utils.print_transcript(text)
-        #     transcript.clear()
-        #     logging.info(f'num of trans after clear = {transcript.qsize()}')
+        if self.programmer_mode:
+            utils.print_transcript(self.last_received_segment)
+            logging.info(f'num of trans after clear = {transcript.qsize()}')
 
     def printing_func(self,transcript):
         print("printing started")
@@ -235,7 +225,7 @@ class Client:
             return
 
         if "segments" in message.keys():
-            logging.info(f"no.of segments recvd from server={len(message['segments'])}")
+            # logging.info(f"no.of segments recvd from server={len(message['segments'])}")
             self.process_segments(message["segments"])
 
 
@@ -366,7 +356,7 @@ class TranscriptionTeeClient:
     Attributes:
         clients (list): the underlying Client instances responsible for handling WebSocket connections.
     """
-    def __init__(self, clients, save_output_recording=False, output_recording_filename="./output_recording.wav"):
+    def __init__(self, clients, save_output_recording=False, output_recording_filename="./output_recording.wav",dev_index=1):
         self.clients = clients
         if not self.clients:
             raise Exception("At least one client is required.")
@@ -379,6 +369,7 @@ class TranscriptionTeeClient:
         self.output_recording_filename = output_recording_filename
         self.frames = b""
         self.p = pyaudio.PyAudio()
+        self.dev_index=dev_index
         try:
             self.stream = self.p.open(
                 format=self.format,
@@ -386,7 +377,7 @@ class TranscriptionTeeClient:
                 rate=self.rate,
                 input=True,
                 frames_per_buffer=self.chunk,
-                input_device_index=4,
+                input_device_index=self.dev_index,
             )
         except OSError as error:
             print(f"[WARN]: Unable to access microphone. {error}")
@@ -494,13 +485,15 @@ class TranscriptionTeeClient:
                 self.close_all_clients()
 
             except KeyboardInterrupt:
+                logging.info("[INFO]: Terminate client due to keyboard interrupt.")
+            finally:
                 wavfile.close()
                 self.stream.stop_stream()
                 self.stream.close()
                 self.p.terminate()
                 self.close_all_clients()
                 self.write_all_clients_srt()
-                print("[INFO]: Keyboard interrupt.")
+
 
     def process_rtsp_stream(self, rtsp_url):
         """
@@ -778,7 +771,8 @@ class TranscriptionClient(TranscriptionTeeClient):
         output_transcription_path="./output.srt",
         log_transcription=False,
         max_clients=4,
-        max_connection_time=5,
+        max_connection_time=600,
+        device_index=4,
     ):
         self.client = Client(
             host, port, lang, translate, model, srt_file_path=output_transcription_path,
@@ -794,5 +788,6 @@ class TranscriptionClient(TranscriptionTeeClient):
             self,
             [self.client],
             save_output_recording=save_output_recording,
-            output_recording_filename=output_recording_filename
+            output_recording_filename=output_recording_filename,
+            dev_index=device_index,
         )
